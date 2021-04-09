@@ -1,0 +1,23 @@
+FROM postgis/postgis:12-3.1
+
+LABEL maintainer="pgRouting Project - https://pgrouting.net"
+
+RUN set -ex \
+ && apt update \
+ && apt install -y \
+        libboost-atomic1.67.0 \
+        libboost-chrono1.67.0 \
+        libboost-graph1.67.0 \
+        libboost-date-time1.67.0 \
+        libboost-program-options1.67.0 \
+        libboost-system1.67.0 \
+        libboost-thread1.67.0 \
+        libcgal13 \
+ && apt install -y \
+        build-essential \
+        cmake \
+        wget \
+        libboost-graph-dev \
+        libcgal-dev \
+        libpq-dev \
+        postgresql-server-dev-${PG_MAJOR}
