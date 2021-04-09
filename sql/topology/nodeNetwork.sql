@@ -31,9 +31,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 
 --v2.6
-CREATE FUNCTION pgr_nodeNetwork(
-  TEXT, -- edge table (required)
-  DOUBLE PRECISION, -- tolerance (required)
+CREATE OR REPLACE FUNCTION pgr_nodeNetwork(
+  edge_table TEXT, -- edge table (required)
+  tolerance DOUBLE PRECISION, -- tolerance (required)
   id TEXT DEFAULT 'id',
   the_geom TEXT DEFAULT 'the_geom',
   table_ending TEXT DEFAULT 'noded',
@@ -44,8 +44,8 @@ DECLARE
   /*
    * Author: Nicolas Ribot, 2013 ; Adrien Berchet, 2020
   */
-  edge_table TEXT := $1;
-  tolerance TEXT := $2;
+--   edge_table TEXT := $1;
+--   tolerance TEXT := $2;
   p_num int := 0;
   p_ret TEXT := '';
   pgis_ver_old BOOLEAN := _pgr_versionless(postgis_lib_version(), '2.1.0.0');
@@ -201,8 +201,12 @@ BEGIN
     vst_line_locate_point := 'st_linelocatepoint';
   END IF;
 
+  create schema if not exists temp_nodenetwork;
+  drop table if exists temp_nodenetwork.intergeom;
+  drop table if exists temp_nodenetwork.inter_loc;
+
   -- First creates temp table with intersection points
-  p_ret = 'CREATE TEMP TABLE intergeom ON COMMIT DROP AS (
+  p_ret = 'CREATE TABLE temp_nodenetwork.intergeom AS (
     SELECT l1.' || quote_ident(n_pkey) || ' AS l1id,
          l2.' || quote_ident(n_pkey) || ' AS l2id,
          l1.' || quote_ident(n_geom) || ' AS line,
@@ -224,15 +228,15 @@ BEGIN
   -- to avoid updating the previous table
   -- we keep only intersection points occurring onto the line, not at one of its ends
   -- drop table if exists inter_loc;
-  p_ret= 'CREATE TEMP TABLE inter_loc ON COMMIT DROP AS (
+  p_ret= 'CREATE TABLE temp_nodenetwork.inter_loc AS (
     SELECT l1id, l2id, ' || vst_line_locate_point || '(line,point) AS locus FROM (
-    SELECT DISTINCT l1id, l2id, line, (ST_DumpPoints(geom)).geom AS point FROM intergeom) AS foo
+    SELECT DISTINCT l1id, l2id, line, (ST_DumpPoints(geom)).geom AS point FROM temp_nodenetwork.intergeom) AS foo
     WHERE ' || vst_line_locate_point || '(line,point)<>0 and ' || vst_line_locate_point || '(line,point)<>1)';
   RAISE DEBUG '%',p_ret;
   EXECUTE p_ret;
 
   -- index on l1id
-  CREATE INDEX inter_loc_id_idx ON inter_loc(l1id);
+  CREATE INDEX inter_loc_id_idx ON temp_nodenetwork.inter_loc(l1id);
 
   -- Then computes the intersection on the lines subset, which is much smaller than full set
   -- as there are very few intersection points
@@ -243,14 +247,14 @@ BEGIN
   P_RET = 'INSERT INTO '||_pgr_quote_ident(outtab)||' (old_id,sub_id,'||quote_ident(n_geom)||') (  WITH cut_locations AS
   (
     SELECT l1id AS lid, locus
-    FROM inter_loc
+    FROM temp_nodenetwork.inter_loc
     -- then generates start AND end locus for each line that have to be cut buy a location point
     UNION ALL
     SELECT DISTINCT i.l1id  AS lid, 0 AS locus
-    FROM inter_loc i LEFT JOIN ' || _pgr_quote_ident(intab) || ' b ON (i.l1id = b.' || quote_ident(n_pkey) || ')
+    FROM temp_nodenetwork.inter_loc i LEFT JOIN ' || _pgr_quote_ident(intab) || ' b ON (i.l1id = b.' || quote_ident(n_pkey) || ')
     UNION ALL
     SELECT DISTINCT i.l1id  AS lid, 1 AS locus
-    FROM inter_loc i LEFT JOIN ' || _pgr_quote_ident(intab) || ' b ON (i.l1id = b.' || quote_ident(n_pkey) || ')
+    FROM temp_nodenetwork.inter_loc i LEFT JOIN ' || _pgr_quote_ident(intab) || ' b ON (i.l1id = b.' || quote_ident(n_pkey) || ')
     ORDER BY lid, locus
   ),
   -- we generate a row_number index column for each input line
@@ -288,8 +292,8 @@ BEGIN
     RAISE NOTICE ' New Table: %', outtab;
     RAISE NOTICE '----------------------------------';
 
-  DROP TABLE IF EXISTS intergeom;
-  DROP TABLE IF EXISTS inter_loc;
+--   DROP TABLE IF EXISTS intergeom;
+--   DROP TABLE IF EXISTS inter_loc;
   RETURN 'OK';
 END;
 $BODY$ LANGUAGE 'plpgsql' VOLATILE STRICT COST 100;
